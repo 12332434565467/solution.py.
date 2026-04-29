@@ -1,0 +1,125 @@
+import numpy as np
+import pandas as pd
+import solvers
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+df = pd.read_csv('coffee_data.csv')
+print(f"Data shape: {df.shape}")
+df.head()
+
+numeric_df = df.select_dtypes(include=[np.number])
+print(f"Numeric columns ({len(numeric_df.columns)}): {numeric_df.columns.tolist()}")
+print(f"\nMissing values:\n{numeric_df.isnull().sum()}")
+
+X = numeric_df.dropna().values
+print(f"\nShape after dropping missing: {X.shape}")
+
+numeric_df.hist(figsize=(15, 10), bins=30, edgecolor='black')
+plt.suptitle('Numeric Columns Distribution', fontsize=14)
+plt.tight_layout()
+plt.show()
+
+def normalise_dataset(X):
+    """
+    Standardize dataset to zero mean and unit variance (population std, ddof=0)
+    """
+    mu = np.mean(X, axis=0)
+    sigma = np.std(X, axis=0, ddof=0)
+    X_normalized = (X - mu) / sigma
+    
+    zero_std = sigma == 0
+    X_normalized[:, zero_std] = 0
+return X_normalized, mu, sigma
+
+def covariance(X):
+    """
+    Compute sample covariance matrix
+    """
+    n = X.shape[0]
+    if n <= 1:
+        return np.zeros((X.shape[1], X.shape[1]))
+    X_centered = X - np.mean(X, axis=0)
+    C = (X_centered.T @ X_centered) / (n - 1)
+    return C
+
+def sorted_eigenvalues(A):
+    """
+    Compute eigenvalues and eigenvectors using Gram-Schmidt QR algorithm,
+    sorted in decreasing order of eigenvalues.
+    """
+    eigenvalues, eigenvectors, _ = solvers.gram_schmidt_eigen(A.copy(), maxiter=1000)
+    
+    idx = np.argsort(eigenvalues)[::-1]
+    sorted_eigenvalues = eigenvalues[idx]
+    sorted_eigenvectors = eigenvectors[:, idx]
+    
+    for i in range(sorted_eigenvectors.shape[1]):
+        sorted_eigenvectors[:, i] = sorted_eigenvectors[:, i] / np.linalg.norm(sorted_eigenvectors[:, i])
+    return sorted_eigenvalues, sorted_eigenvectors
+
+X_norm, mu, sigma = normalise_dataset(X)
+C = covariance(X_norm)
+
+print(f"Mean after normalization (first 5 columns): {np.mean(X_norm, axis=0)[:5]}")
+print(f"Std after normalization (first 5): {np.std(X_norm, axis=0, ddof=0)[:5]}")
+
+plt.figure(figsize=(12, 10))
+sns.heatmap(C, 
+            xticklabels=numeric_df.columns, 
+            yticklabels=numeric_df.columns,
+            cmap='coolwarm', 
+            center=0,
+            square=True)
+plt.title('Covariance Matrix Heatmap', fontsize=14)
+plt.xticks(rotation=45, ha='right')
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.show()
+
+total_var = np.sum(eigenvalues)
+explained_variance_ratio = eigenvalues / total_var
+cumulative = np.cumsum(explained_variance_ratio)
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(1, len(explained_variance_ratio)+1), explained_variance_ratio, 
+        alpha=0.6, label='Individual components')
+plt.step(range(1, len(cumulative)+1), cumulative, where='mid', 
+         label='Cumulative', linewidth=2, color='red')
+plt.axhline(y=0.8, color='green', linestyle='--', label='80%')
+plt.axhline(y=0.9, color='orange', linestyle='--', label='90%')
+plt.xlabel('Principal component', fontsize=12)
+plt.ylabel('Explained variance ratio', fontsize=12)
+plt.title('Explained Variance by Principal Components', fontsize=14)
+plt.legend()
+plt.grid(alpha=0.3)
+plt.show()
+
+n_80 = np.argmax(cumulative >= 0.8) + 1 if np.any(cumulative >= 0.8) else len(cumulative)
+n_90 = np.argmax(cumulative >= 0.9) + 1 if np.any(cumulative >= 0.9) else len(cumulative)
+print(f"Number of components needed for 80% variance: {n_80}")
+print(f"Number of components needed for 90% variance: {n_90}")
+
+X_projected = X_norm @ eigenvectors[:, :2]
+
+color_col = None
+for col in ['total_cup_points', 'quality_score', 'score', 'rating']:
+    if col in numeric_df.columns:
+        color_col = col
+        break
+if color_col is None:
+    color_col = numeric_df.columns[0]
+
+color_data = numeric_df.dropna()[color_col].values
+
+plt.figure(figsize=(10, 8))
+scatter = plt.scatter(X_projected[:, 0], X_projected[:, 1], 
+                       c=color_data, cmap='plasma', alpha=0.7, edgecolors='black', linewidth=0.2)
+plt.colorbar(scatter, label=color_col)
+plt.xlabel('First Principal Component', fontsize=12)
+plt.ylabel('Second Principal Component', fontsize=12)
+plt.title(f'PCA Projection of Coffee Data', fontsize=14)
+plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
