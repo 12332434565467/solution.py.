@@ -17,3 +17,9 @@ def load_data(filename):
             cls.append(int(row[2]))
 
     return age, hg, cls
+age, hg, cls = load_data("stroke_separable.csv")
+
+print(age[:5])
+print(hg[:5])
+print(cls[:5])
+print(len(age), len(hg), len(cls))
